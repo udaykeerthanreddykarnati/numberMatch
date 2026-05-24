@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>NumRush</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: monospace;
+      background: #0d1117;
+      color: #c9d1d9;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 24px;
+    }
+    .hud { display: flex; gap: 48px; font-size: 22px; color: #8b949e; }
+    .hud b { color: #e3b341; font-size: 28px; }
+    #msg { font-size: 15px; color: #58a6ff; letter-spacing: 1px; min-height: 20px; }
+    .rules { font-size: 13px; color: #30363d; line-height: 2; text-align: center; }
+    .rules b { color: #484f58; }
+  </style>
+</head>
+<body>
+  <div class="hud">
+    <span>SCORE <b id="sc">0</b></span>
+    <span>LIVES <b id="lv">3</b></span>
+    <span>LEVEL <b id="lel">1</b></span>
+  </div>
+  <div id="msg">press any digit 0-9 to start</div>
+  <div class="rules">
+    numbers fly right to left in the URL bar<br>
+    <b>press the matching digit</b> before it hits your catcher on the left<br>
+    wrong number = miss · 3 misses = game over · every 5 hits = 10% faster
+  </div>
+
+<script>
+'use strict';
+
+var COLS       = 28;
+var EMPTY      = '.';
+var BASE_DELAY = 1400;   // starting spawn interval ms
+var MIN_DELAY  = 200;    // floor
+
+var myNum   = '?';
+var balls   = [];
+var score   = 0;
+var lives   = 3;
+var level   = 1;        // increments every 5 hits
+var running = false;
+var over    = false;
+var started = false;
+var ticker  = null;
+var spawnT  = null;
+var bId     = 0;
+var flash   = '';
+var flashT  = null;
+
+// Each level = one 10% reduction compounded: delay = BASE * 0.9^(level-1)
+function getDelay() {
+  var d = BASE_DELAY * Math.pow(0.9, level - 1);
+  return Math.max(MIN_DELAY, Math.round(d));
+}
+
+function render() {
+  var field = [];
+  for (var i = 0; i < COLS; i++) field.push(EMPTY);
+  for (var j = 0; j < balls.length; j++) {
+    var b = balls[j];
+    if (b.col >= 0 && b.col < COLS) field[b.col] = b.digit;
+  }
+  var L = flash === 'hit' ? '*' : flash === 'miss' ? 'X' : myNum;
+  try { location.hash = '#' + L + '-' + field.join('') + '-' + score; } catch(e) {}
+}
+
+function scheduleSpawn() {
+  if (!running) return;
+  spawnT = setTimeout(function() {
+    if (!running) return;
+    var d = String(Math.floor(Math.random() * 10));
+    if (Math.random() < 0.38 && myNum !== '?') d = myNum;
+    balls.push({ id: bId++, digit: d, col: COLS - 1 });
+    scheduleSpawn();
+  }, getDelay());
+}
+
+function tick() {
+  if (!running) return;
+
+  balls = balls.map(function(b) {
+    return { id: b.id, digit: b.digit, col: b.col - 1 };
+  });
+
+  var remove  = [];
+  var gotHit  = false;
+  var gotMiss = false;
+
+  balls.forEach(function(b) {
+    if (b.col <= 0) {
+      if (b.digit === myNum) gotHit = true;
+      else gotMiss = true;
+      remove.push(b.id);
+    }
+  });
+  balls = balls.filter(function(b) { return remove.indexOf(b.id) === -1; });
+
+  if (gotHit) {
+    score++;
+    var newLevel = 1 + Math.floor(score / 5);
+    var leveledUp = newLevel > level;
+    level = newLevel;
+    setHud();
+    if (leveledUp) {
+      var pct = Math.round((1 - Math.pow(0.9, level - 1)) * 100);
+      setMsg('faster!  ' + pct + '% quicker now  score:' + score);
+    } else {
+      setMsg('MATCH  +1  score:' + score);
+    }
+    doFlash('hit');
+  }
+
+  if (gotMiss) {
+    lives--;
+    setHud();
+    if (lives <= 0) { endGame(); return; }
+    setMsg('MISS  lives:' + lives);
+    doFlash('miss');
+  }
+
+  render();
+}
+
+function doFlash(type) {
+  flash = type;
+  clearTimeout(flashT);
+  flashT = setTimeout(function() { flash = ''; }, 200);
+}
+
+function setHud() {
+  document.getElementById('sc').textContent  = score;
+  document.getElementById('lel').textContent = level;
+  document.getElementById('lv').textContent  = lives;
+}
+function setMsg(t) { document.getElementById('msg').textContent = t; }
+
+function startGame() {
+  balls = []; score = 0; lives = 3; level = 1; myNum = '?';
+  flash = ''; over = false; running = true; started = true;
+  setHud();
+  setMsg('type digits to catch incoming numbers!');
+  clearInterval(ticker);
+  clearTimeout(spawnT);
+  ticker = setInterval(tick, 80);
+  scheduleSpawn();
+  render();
+}
+
+function endGame() {
+  running = false;
+  clearInterval(ticker);
+  clearTimeout(spawnT);
+  over = true;
+  setMsg('GAME OVER  final score: ' + score);
+  render();
+}
+
+document.addEventListener('keydown', function(e) {
+  if (e.key >= '0' && e.key <= '9') {
+    if (!started || over) startGame();
+    myNum = e.key;
+    render();
+    return;
+  }
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    e.preventDefault();
+    if (!started || over) { startGame(); return; }
+    var cur = myNum === '?' ? 5 : parseInt(myNum);
+    myNum = String(e.key === 'ArrowUp' ? (cur + 1) % 10 : (cur + 9) % 10);
+    render();
+  }
+});
+
+render();
+</script>
+</body>
+</html>
