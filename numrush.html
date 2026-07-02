@@ -135,7 +135,7 @@ function tick() {
 function doFlash(type) {
   flash = type;
   clearTimeout(flashT);
-  flashT = setTimeout(function() { flash = ''; }, 200);
+  flashT = setTimeout(function() {  flash = ''; render(); }, 200);
 }
 
 function setHud() {
